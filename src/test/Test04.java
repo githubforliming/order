@@ -1,78 +1,90 @@
 package test;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
 /**
  *      @author 关注公众号：木子的昼夜编程
  *     // 面试题：2个线程交替输出A1B2C3D4E5F6G7
- *     // 方式2：synchronized wait notify
+ *     // 方式2：Lock  ReentrantLock
+ *     // 关于ReentrantLock Condition相关知识以及CAS 可以关注我公众号 我都有写到相关文章
+ *     // 用2个condition就涉及condition原理了
+ *     // git地址：https://github.com/githubforliming/order.git
  */
 public class Test04 {
 
-    public static void main(String[] args){
+    public static void main(String[] args) throws InterruptedException {
         char[] nums = {'1','2','3','4','5','6','7'};
         char[] letters = {'A','B','C','D','E','F','G'};
-        WaitNotifyTest(nums, letters);
+        OrderTest(nums, letters);
     }
 
-    static volatile boolean isStart = false;
     // 使用wait notify 之前文章写过使用方式
-    public static void WaitNotifyTest(char[] nums, char[] letters){
-        // 锁
-        Object lock = new Object();
+    public static void OrderTest(char[] nums, char[] letters) {
+        CountDownLatch cdl = new CountDownLatch(1);
+        // 锁 关于锁的使用
+        Lock lock = new ReentrantLock();
+        // 这个用法比第一个看着高级 因为每个线程有自己一个独立的Condition
+        Condition condition1 = lock.newCondition();
+        Condition condition2 = lock.newCondition();
         // 输出字母
         Thread thread01 = new Thread(() -> {
-            // 争夺锁 这里一定注意是先synchronized再执行for wait notify 
-            synchronized (lock) {
+            try {
+                lock.lock();
                 for (int i = 0; i < letters.length; i++) {
-                    // 输出
+                    // 输出字母
                     System.out.print(letters[i]);
-                    // 设置isStart为true
-                    isStart = true;
+                    cdl.countDown();
                     try {
                         // 通知另一个线程执行输出动作
-                        lock.notify();
-                        // 让出锁 等别人通知我再执行
-                        lock.wait();
+                        condition2.signal();
+                        // 让出锁 等别人通知我再执行(signal)
+                        condition1.await();
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
                 }
-                // 防止最后线程wait没人notify
-                lock.notify();
+                condition2.signal();
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                // 不要忘记unlock
+                lock.unlock();
             }
         });
 
         // 输出数字
         Thread thread02 = new Thread(() -> {
-            // 争夺锁
-            synchronized (lock) {
-                // 如果线程1没有启动 那就wait  用if?
-                while (!isStart) {
-                    try {
-                        lock.wait();
-                    } catch(Exception e) {
-                        e.printStackTrace();
-                    }
-                }
+            try {
+                // 等线程1先输出
+                cdl.await();
+                lock.lock();
                 for (int i = 0; i < nums.length; i++) {
-                    // 输出
+                    // 输出字母
                     System.out.print(nums[i]);
                     try {
                         // 通知另一个线程执行输出动作
-                        lock.notify();
-                        // 让出锁 等别人通知我再执行
-                        lock.wait();
+                        condition1.signal();
+                        // 让出锁 等别人通知我再执行(signal)
+                        condition2.await();
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
                 }
-                // 防止最后线程wait没人notify
-                lock.notify();
+                condition1.signal();
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                // 不要忘记unlock
+                lock.unlock();
             }
         });
 
         // 开启线程
-        thread01.start();
         thread02.start();
+        thread01.start();
     }
 
 }
